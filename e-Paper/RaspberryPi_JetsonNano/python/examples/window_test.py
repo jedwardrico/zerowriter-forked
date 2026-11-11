@@ -17,11 +17,11 @@ font = ImageFont.truetype('Courier Prime.ttf', 28)
 big = ImageFont.truetype('Courier Prime.ttf', 56)
 
 
-def band_rows(img_y0, img_y1):
-    """Image rows [img_y0, img_y1) -> (buffer y0, rows), allowing for flip_y."""
-    if epd.flip_y:
-        return H - img_y1, img_y1 - img_y0
-    return img_y0, img_y1 - img_y0
+def win(img, img_y0, img_y1, repeat=1):
+    """Update only image rows [img_y0, img_y1) (flip_y puts them at buffer
+    rows H-img_y1 .. H-img_y0)."""
+    assert epd.flip_y, "window_test assumes the default flip_y=True"
+    epd.display_window(epd.getbuffer(img), H - img_y1, img_y1 - img_y0, repeat)
 
 
 def pause(msg):
@@ -60,33 +60,47 @@ try:
 
     epd.init_Partial()
 
-    # --- Test A: bottom 120 rows, resolution change only (no gate offset) ---
-    y0, rows = band_rows(H - 120, H)
+    # --- Test A: bottom 120 rows (gate offset now converted) ---
     imgA = band_image(base, H - 120, H, "WINDOW A: bottom 120 rows")
-    epd.display_window(epd.getbuffer(imgA), y0, rows)
-    pause("TEST A (resolution only, no offset): a black bar should appear in the\n"
-          "BOTTOM 120 rows only, and the rest of the pattern should be unchanged.\n"
-          "Report: (1) did the bar appear at the bottom, top, or elsewhere?\n"
-          "        (2) did the rest of the screen keep its pattern, go blank, or garble?\n"
+    win(imgA, H - 120, H)
+    pause("TEST A: a black bar in the BOTTOM 120 rows only; rest unchanged.\n"
+          "Report: (1) is the bar at the bottom? is its text readable and upright?\n"
+          "        (2) how dark is the bar vs the black border lines (full / medium / dim)?\n"
           "        (3) the timing line above.")
 
-    # --- Test B: middle band, needs the gate offset (GSST) ---
-    y0, rows = band_rows(300, 420)
+    # --- Test B: middle band ---
     imgB = band_image(imgA, 300, 420, "WINDOW B: rows 300-420")
-    epd.display_window(epd.getbuffer(imgB), y0, rows)
-    pause("TEST B (gate offset): a black bar should appear around y=300..420\n"
-          "(between the y=300 and y=400 ticks), and bar A at the bottom should stay.\n"
-          "Report: (1) where did the bar appear? (2) did bar A and the rest stay?\n"
-          "        (3) the timing line above.")
+    win(imgB, 300, 420)
+    pause("TEST B: a black bar between the y=300 and y=400 ticks (about y=300..420).\n"
+          "Report: (1) is it positioned there? (2) did bar A and the rest stay?\n"
+          "        (3) how dark is it? (4) the timing line above.")
 
-    # --- Test C: typing-like repeated small updates ---
-    y0, rows = band_rows(H - 120, H)
-    cur = imgA
-    for i, text in enumerate(["h", "he", "hel", "hell", "hello"]):
-        cur = band_image(base, H - 120, H, "typing: " + text, fill_black=False)
-        epd.display_window(epd.getbuffer(cur), y0, rows)
-    pause("TEST C: five quick updates of the bottom strip like keystrokes.\n"
-          "Report the five timing lines above and whether the text looked clean.")
+    # --- Test D: does repeating the update build contrast? ---
+    epd.init()
+    epd.Clear()
+    epd.init_Partial()
+    cur = Image.new('1', (W, H), 255)
+    for n, (y0, y1) in enumerate([(0, 120), (120, 240), (240, 360), (360, 480)], start=1):
+        cur = band_image(cur, y0, y1, "repeat x%d" % n)
+        win(cur, y0, y1, repeat=n)
+    pause("TEST D: four black bars, top to bottom, updated 1, 2, 3, 4 times.\n"
+          "Report: which bar is the first that looks as dark as a normal full\n"
+          "update (x1, x2, x3, x4)? Also send the four timing lines above.")
+
+    # --- Test E: a taller strip, one update ---
+    cur = band_image(cur, 440, 680, "240 rows x1")
+    win(cur, 440, 680, repeat=1)
+    pause("TEST E: a 240-row strip (bottom of the screen), one update.\n"
+          "Report: how dark is it compared with the x1 bar and with the x4 bar?\n"
+          "        and the timing line above.")
+
+    # --- Test F: reference, normal full-frame partial update ---
+    d = ImageDraw.Draw(cur)
+    d.rectangle((120, 490, W - 120, 540), fill=0)
+    epd.display(epd.getbuffer(cur))
+    pause("TEST F: reference. A black bar near y=490..540 drawn with the normal\n"
+          "full-frame partial update (this is how main.py draws today).\n"
+          "Report: how dark is it compared with the bars from test D?")
 
 finally:
     epd.init()

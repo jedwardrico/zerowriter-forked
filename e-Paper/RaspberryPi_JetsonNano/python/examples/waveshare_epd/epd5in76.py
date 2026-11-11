@@ -269,14 +269,18 @@ class EPD:
             return _PART_NP[idx].tobytes()
         return b''.join([_PART[(o << 8) | n] for o, n in zip(old, new)])
 
-    def display_window(self, buf, y0, rows):
+    def display_window(self, buf, y0, rows, repeat=1):
         """EXPERIMENTAL: partial update of only buffer rows y0..y0+rows.
 
-        Narrows the controller's resolution (TRES, 0x61) to `rows` lines and,
-        if y0 > 0, sets the gate start line (GSST, 0x65). The meaning of GSST
-        is inferred from the demo's "GSST" label and similar controllers; it
-        is not documented in the datasheets we have. `buf` is a full-frame
+        Narrows the controller's resolution (TRES, 0x61) to `rows` lines and
+        sets the gate start line (GSST, 0x65). `buf` is a full-frame
         getbuffer() result (already flipped); only the window rows are sent.
+
+        Measured on the panel: GSST counts gate lines from the physical top
+        of the screen, while buffer row 0 is at the bottom, so the gate start
+        is height - (y0 + rows). A 120-row window refreshes in ~120 ms but
+        with much less drive time per pixel (dim), so `repeat` re-sends the
+        same old/new data that many times to build contrast.
         The datasheet says VRES must be >= 120. Partial mode only.
         """
         if not self._partial:
@@ -286,39 +290,48 @@ class EPD:
         row_bytes = self.width // 8
         lo, hi = y0 * row_bytes, (y0 + rows) * row_bytes
         prev = self._prev if self._prev is not None else b'\xff' * len(buf)
+        gate_start = self.height - (y0 + rows)
         t0 = time.time()
 
         self.send_command(0x61)  # TRES: window size
         for b in (self.width // 256, self.width % 256, rows // 256, rows % 256):
             self.send_data(b)
-        if y0:
-            self.send_command(0x65)  # GSST: gate start line (guessed layout)
-            for b in (0x00, 0x00, (y0 >> 8) & 0x03, y0 & 0xFF):
+        if gate_start:
+            self.send_command(0x65)  # GSST: gate start line (layout guessed)
+            for b in (0x00, 0x00, (gate_start >> 8) & 0x03, gate_start & 0xFF):
                 self.send_data(b)
 
-        self.send_command(0x10)
-        self.ReadBusy()
         data = self._interleave(prev[lo:hi], buf[lo:hi])
         t1 = time.time()
-        self.send_data_block(data)
-        t2 = time.time()
-        self._update()
-        t3 = time.time()
+        spi_s = refresh_s = 0.0
+        for _ in range(max(1, repeat)):
+            self.send_command(0x10)
+            self.ReadBusy()
+            ta = time.time()
+            self.send_data_block(data)
+            tb = time.time()
+            self._update()
+            tc = time.time()
+            spi_s += tb - ta
+            refresh_s += tc - tb
+        t2 = t1 + spi_s
+        t3 = t2 + refresh_s
 
         # restore the full-frame window for normal updates
         self.send_command(0x61)
         for b in (self.width // 256, self.width % 256,
                   self.height // 256, self.height % 256):
             self.send_data(b)
-        if y0:
+        if gate_start:
             self.send_command(0x65)
             for _ in range(4):
                 self.send_data(0x00)
 
         self._prev = prev[:lo] + buf[lo:hi] + prev[hi:]
         self.partial_count += 1
-        print("epd window rows %d+%d: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
-            y0, rows, (t1 - t0) * 1000, (t2 - t1) * 1000, (t3 - t2) * 1000, (t3 - t0) * 1000))
+        print("epd window gate %d+%d x%d: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
+            gate_start, rows, repeat, (t1 - t0) * 1000, (t2 - t1) * 1000,
+            (t3 - t2) * 1000, (time.time() - t0) * 1000))
 
     def display(self, buf):
         """Show a getbuffer() frame. Full or partial depending on last init."""

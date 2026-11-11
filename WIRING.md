@@ -1,9 +1,9 @@
 # Wiring: Raspberry Pi Zero 2 W -> DESPI-C02 -> GDEH0576T81
 
-Status: the Pi-side pins come from `epdconfig.py` (BCM numbering) and are reliable.
-The DESPI-C02 pin labels are the usual 4-wire SPI signal names and are **not yet
-checked against the GDEH0576T81 / DESPI-C02 datasheets**. Match each signal to
-the label printed on your board before powering up.
+Status: the Pi-side pins come from `epdconfig.py` (BCM numbering). The signal
+names and behaviour below are confirmed against the GDEH0576T81 datasheet (FPC
+pin table, section 1.5). The datasheet does **not** cover the DESPI-C02 board, so
+match each signal to the label printed on your DESPI-C02 before powering up.
 
 ```
  Raspberry Pi (40-pin header)                DESPI-C02 header
@@ -33,5 +33,9 @@ Notes
 - Power the board from 3.3V only. Do not use 5V.
 - `epdconfig.py` also toggles GPIO18 (PWR_PIN). The DESPI-C02 has no such pin; leave GPIO18 unconnected.
 - Enable SPI (`dtparam=spi=on` in config.txt, see `sampleconfig`).
-- Check the DESPI-C02 for a 4-wire/3-wire SPI selector (BS1) and set it to 4-wire SPI. This code uses a separate D/C line.
+- Datasheet: the panel's BS pin (FPC pin 8) selects the SPI mode. **Low = 4-line SPI**, High = 3-line (9-bit) SPI. This code uses a separate D/C line, so set the DESPI-C02's 4-wire/3-wire selector to 4-wire.
+- Datasheet: CS is active low. D/C high = data, low = command. RES is active low.
+- Datasheet: BUSY is **high while the panel is working**. The driver must wait for it to go low (the Waveshare 4.2" driver may assume other polarity).
+- Datasheet: VCC/VDDIO are specified at 3.0V (absolute max 6.0V); 3.3V from the Pi is fine.
+- The datasheet has no command/init sequence (controller is SSD2677, 920x680). The driver port needs Good Display's sample code or the SSD2677 datasheet.
 - The display FPC goes into the DESPI-C02 connector with the contacts facing the correct way; see the board datasheet.

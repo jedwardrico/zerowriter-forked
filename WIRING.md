@@ -1,41 +1,50 @@
 # Wiring: Raspberry Pi Zero 2 W -> DESPI-C02 -> GDEH0576T81
 
-Status: the Pi-side pins come from `epdconfig.py` (BCM numbering). The signal
-names and behaviour below are confirmed against the GDEH0576T81 datasheet (FPC
-pin table, section 1.5). The datasheet does **not** cover the DESPI-C02 board, so
-match each signal to the label printed on your DESPI-C02 before powering up.
+Sources: GDEH0576T81 datasheet (FPC pin table, section 1.5) and DESPI-C02
+datasheet (header P2 labels, DIP switch P3). Pi pins come from `epdconfig.py`
+(BCM numbering).
+
+## DESPI-C02 header P2 (8 pins, top to bottom as printed on the board)
 
 ```
- Raspberry Pi (40-pin header)                DESPI-C02 header
- ----------------------------                ----------------
- Pin 1   3V3                    ----------->  VCC / 3.3V
- Pin 6   GND                    ----------->  GND
- Pin 19  GPIO10 (SPI0 MOSI)     ----------->  SDA / DIN
- Pin 23  GPIO11 (SPI0 SCLK)     ----------->  SCL / CLK
- Pin 24  GPIO8  (SPI0 CE0)      ----------->  CS
- Pin 22  GPIO25                 ----------->  D/C
- Pin 11  GPIO17                 ----------->  RES
- Pin 18  GPIO24                 <-----------  BUSY   (display -> Pi)
+ DESPI-C02 P2           Raspberry Pi (40-pin header)
+ ------------           ----------------------------
+ BUSY   ------------->  Pin 18  GPIO24            (display -> Pi)
+ RES    <-------------  Pin 11  GPIO17
+ D/C    <-------------  Pin 22  GPIO25
+ CS     <-------------  Pin 24  GPIO8  (SPI0 CE0)
+ SCK    <-------------  Pin 23  GPIO11 (SPI0 SCLK)
+ SDI    <-------------  Pin 19  GPIO10 (SPI0 MOSI)
+ GND    -------------   Pin 6   GND
+ 3.3V   <-------------  Pin 1   3V3
 ```
 
-| Signal | Pi BCM | Pi physical pin | Direction |
-|--------|--------|-----------------|-----------|
-| 3.3V   | -      | 1 (or 17)       | power     |
-| GND    | -      | 6 (or 9, 14, 20, 25) | ground |
-| SDA/DIN (MOSI) | GPIO10 | 19      | Pi -> display |
-| SCL/CLK (SCLK) | GPIO11 | 23      | Pi -> display |
-| CS     | GPIO8 (CE0) | 24         | Pi -> display |
-| D/C    | GPIO25 | 22              | Pi -> display |
-| RES    | GPIO17 | 11              | Pi -> display |
-| BUSY   | GPIO24 | 18              | display -> Pi |
+| DESPI-C02 pin | Pi BCM | Pi physical pin | Direction |
+|---------------|--------|-----------------|-----------|
+| BUSY          | GPIO24 | 18              | display -> Pi |
+| RES           | GPIO17 | 11              | Pi -> display |
+| D/C           | GPIO25 | 22              | Pi -> display |
+| CS            | GPIO8 (CE0) | 24         | Pi -> display |
+| SCK           | GPIO11 (SCLK) | 23       | Pi -> display |
+| SDI           | GPIO10 (MOSI) | 19       | Pi -> display |
+| GND           | -      | 6 (or 9, 14, 20, 25) | ground |
+| 3.3V          | -      | 1 (or 17)       | power |
 
-Notes
-- Power the board from 3.3V only. Do not use 5V.
+## Board settings
+
+- **DIP switch P3 must be set to 2.2** (the SSD series position). The DESPI-C02
+  datasheet says to use 2.2 for SSD (Solomon Systech) driver ICs and 0.47 only
+  for UC series. The GDEH0576T81 uses an SSD2677. A wrong setting can stop the
+  display refreshing.
+- Insert the panel FPC into connector P1 with the display surface facing up,
+  then press down the black FPC latch.
+- Power from 3.3V only. Do not use 5V.
+
+## Notes
+
 - `epdconfig.py` also toggles GPIO18 (PWR_PIN). The DESPI-C02 has no such pin; leave GPIO18 unconnected.
 - Enable SPI (`dtparam=spi=on` in config.txt, see `sampleconfig`).
-- Datasheet: the panel's BS pin (FPC pin 8) selects the SPI mode. **Low = 4-line SPI**, High = 3-line (9-bit) SPI. This code uses a separate D/C line, so set the DESPI-C02's 4-wire/3-wire selector to 4-wire.
-- Datasheet: CS is active low. D/C high = data, low = command. RES is active low.
-- Datasheet: BUSY is **high while the panel is working**. The driver must wait for it to go low (the Waveshare 4.2" driver may assume other polarity).
-- Datasheet: VCC/VDDIO are specified at 3.0V (absolute max 6.0V); 3.3V from the Pi is fine.
-- The datasheet has no command/init sequence (controller is SSD2677, 920x680). The driver port needs Good Display's sample code or the SSD2677 datasheet.
-- The display FPC goes into the DESPI-C02 connector with the contacts facing the correct way; see the board datasheet.
+- Panel BS pin (FPC pin 8): Low = 4-line SPI, High = 3-line (9-bit). The DESPI-C02 header has no BS pin and its datasheet doesn't say how the board sets it. This code needs 4-line SPI (separate D/C). If the display never responds, check the BS setting on the board.
+- CS is active low. D/C high = data, low = command. RES is active low.
+- BUSY is **high while the panel is working**; the driver must wait for it to go low.
+- The datasheets have no command/init sequence (controller SSD2677, 920x680). The driver port needs Good Display's sample code or the SSD2677 datasheet.

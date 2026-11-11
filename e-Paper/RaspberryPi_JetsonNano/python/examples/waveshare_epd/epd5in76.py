@@ -17,6 +17,7 @@
 #   panel's life).
 
 import logging
+import os
 import struct
 import time
 
@@ -63,6 +64,14 @@ class EPD:
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
         self.busy_timeout_s = 30
+
+        # SPI clock. The repo default of 4 MHz makes sending a frame take
+        # ~0.3 s. 10 MHz cuts that to ~0.13 s. The SSD2677 datasheet leaves
+        # the maximum clock as TBD, so if the screen shows garbage, lower it.
+        self.spi_speed_hz = 10000000
+
+        # Set ZW_TIMING=1 in the environment to print per-update timings.
+        self.timing = bool(os.environ.get('ZW_TIMING'))
 
         # Orientation fix-ups applied to the image before sending. With the
         # demo's scan direction this panel shows the image flipped top to
@@ -135,6 +144,7 @@ class EPD:
             if epdconfig.module_init() != 0:
                 return -1
             self._module_open = True
+        epdconfig.SPI.max_speed_hz = self.spi_speed_hz
         return 0
 
     def _common_init(self):
@@ -246,6 +256,12 @@ class EPD:
         """Show a getbuffer() frame. Full or partial depending on last init."""
         if buf is None:
             return
+        # Nothing changed since the last partial update: skip the whole
+        # transfer and refresh (this is the common case while the main loop
+        # keeps redrawing the same input line).
+        if self._partial and buf == self._prev:
+            return
+        t0 = time.time()
         self.send_command(0x10)
         self.ReadBusy()
         if self._partial:
@@ -254,9 +270,16 @@ class EPD:
             self.partial_count += 1
         else:
             data = b''.join(map(_FULL.__getitem__, buf))
+        t1 = time.time()
         self.send_data_block(data)
+        t2 = time.time()
         self._update()
         self._prev = buf
+        if self.timing:
+            t3 = time.time()
+            print("epd %s: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
+                "partial" if self._partial else "full",
+                (t1 - t0) * 1000, (t2 - t1) * 1000, (t3 - t2) * 1000, (t3 - t0) * 1000))
 
     def Clear(self):
         """Fill the screen white (uses the current init mode)."""

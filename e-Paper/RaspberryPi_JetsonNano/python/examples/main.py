@@ -4,21 +4,21 @@
 # This code is open-source. Feel free to modify and redistribute as you want.
 # Participate on reddit in r/zerowriter if you want.
 #
-# Using the new4in2part library
+# Using the epd5in76 library (Good Display GDEH0576T81, 920x680, SSD2677)
 #
 # a python e-typewriter using eink and a USB keyboard
 # this program outputs directly to the SPI eink screen, and is driven by a
 # raspberry pi zero (or any pi). technically, it operates headless as the OS has no
 # access to the SPI screen. it handles keyboard input directly via keyboard library.
 #
-# currently ONLY supports waveshare 4in2
+# currently ONLY supports the GDEH0576T81 5.76" panel (see WIRING.md)
 #
 
 import time
 import keyboard
 import keymaps
 from PIL import Image, ImageDraw, ImageFont
-from waveshare_epd import new4in2part
+from waveshare_epd import epd5in76
 import textwrap
 import subprocess
 import signal
@@ -28,7 +28,7 @@ from pathlib import Path
 
 # Initialize the e-Paper display
 # clear refreshes whole screen, should be done on slow init()
-epd = new4in2part.EPD()
+epd = epd5in76.EPD()
 epd.init()
 epd.Clear()
 
@@ -38,11 +38,17 @@ display_draw = ImageDraw.Draw(display_image)
 
 #Display settings like font size, spacing, etc.
 display_start_line = 0
-font24 = ImageFont.truetype('Courier Prime.ttf', 18) #24
+SCREEN_W = epd.width
+SCREEN_H = epd.height
+INPUT_Y = SCREEN_H - 48  # top of the input line area
+font24 = ImageFont.truetype('Courier Prime.ttf', 28)
 textWidth=16
-linespacing = 22
-chars_per_line = 32 #28
-lines_on_screen = 12
+linespacing = 36
+chars_per_line = 52
+lines_on_screen = 17
+# partial updates leave ghosting; after this many, the next full redraw
+# (new line / scroll) also does a full-screen refresh. Tune to taste.
+FULL_REFRESH_AFTER = 30
 last_display_update = time.time()
 
 #display related
@@ -101,11 +107,11 @@ def update_display():
     global current_line
     global scrollindex
     
-    # Clear the main display area -- also clears input line (270-300)
-    display_draw.rectangle((0, 0, 400, 300), fill=255)
+    # Clear the main display area -- also clears input line
+    display_draw.rectangle((0, 0, SCREEN_W, SCREEN_H), fill=255)
     
     # Display the previous lines
-    y_position = 270 - linespacing  # leaves room for cursor input
+    y_position = INPUT_Y - linespacing  # leaves room for cursor input
 
     #Make a temp array from previous_lines. And then reverse it and display as usual.
     current_line=max(0,len(previous_lines)-lines_on_screen*scrollindex)
@@ -118,13 +124,19 @@ def update_display():
 
     #Display Console Message
     if console_message != "":
-        display_draw.rectangle((300, 270, 400, 300), fill=255)
-        display_draw.text((300, 270), console_message, font=font24, fill=0)
+        display_draw.rectangle((SCREEN_W - 160, INPUT_Y, SCREEN_W, SCREEN_H), fill=255)
+        display_draw.text((SCREEN_W - 160, INPUT_Y), console_message, font=font24, fill=0)
         console_message = ""
     
     #generate display buffer for display
     partial_buffer = epd.getbuffer(display_image)
-    epd.display(partial_buffer)
+    if epd.partial_count >= FULL_REFRESH_AFTER:
+        # clear ghosting with a full refresh, then go back to partial mode
+        epd.init()
+        epd.display(partial_buffer)
+        epd.init_Partial()
+    else:
+        epd.display(partial_buffer)
 
     last_display_update = time.time()
     display_catchup = True
@@ -139,13 +151,13 @@ def update_input_area(): #this updates the input area of the typewriter (active 
     global updating_input_area
 
     cursor_index = cursor_position
-    display_draw.rectangle((0, 270, 400, 300), fill=255)  # Clear display
+    display_draw.rectangle((0, INPUT_Y, SCREEN_W, SCREEN_H), fill=255)  # Clear input area
     
     #add cursor
     temp_content = input_content[:cursor_index] + "|" + input_content[cursor_index:]
     
     #draw input line text
-    display_draw.text((10, 270), str(temp_content), font=font24, fill=0)
+    display_draw.text((10, INPUT_Y), str(temp_content), font=font24, fill=0)
     
     #generate display buffer for input line
     updating_input_area = True
@@ -259,8 +271,9 @@ def handle_key_press(e):
     #powerdown - could add an autosleep if you want to save battery
     if e.name == "esc" and control_active: #ctrl+esc
         #run powerdown script
-        display_draw.rectangle((0, 0, 400, 300), fill=255)  # Clear display
-        display_draw.text((55, 150), "ZeroWriter Powered Down.", font=font24, fill=0)
+        display_draw.rectangle((0, 0, SCREEN_W, SCREEN_H), fill=255)  # Clear display
+        msg = "ZeroWriter Powered Down."
+        display_draw.text(((SCREEN_W - font24.getlength(msg)) // 2, SCREEN_H // 2), msg, font=font24, fill=0)
         partial_buffer = epd.getbuffer(display_image)
         epd.display(partial_buffer)
         time.sleep(3)
@@ -362,6 +375,7 @@ def handle_interrupt(signal, frame):
     keyboard.unhook_all()
     epd.init()
     epd.Clear()
+    epd.sleep()
     exit(0)
 
 #Startup Stuff ---

@@ -46,5 +46,5 @@ datasheet (header P2 labels, DIP switch P3). Pi pins come from `epdconfig.py`
 - Enable SPI (`dtparam=spi=on` in config.txt, see `sampleconfig`).
 - Panel BS pin (FPC pin 8): Low = 4-line SPI, High = 3-line (9-bit). The DESPI-C02 header has no BS pin and its datasheet doesn't say how the board sets it. This code needs 4-line SPI (separate D/C). If the display never responds, check the BS setting on the board.
 - CS is active low. D/C high = data, low = command. RES is active low.
-- BUSY is **high while the panel is working**; the driver must wait for it to go low.
+- BUSY polarity is **contradictory between the datasheets**. The GDEH0576T81 datasheet says BUSY is high while working; the SSD2677 datasheet says BUSY_N goes low while busy (reset, refresh, auto sequence) and high when ready. The pin is named BUSY_N, so low = busy is more likely. Confirm on hardware before relying on it.
 - The datasheets have no command/init sequence (controller SSD2677, 920x680). The driver port needs Good Display's sample code or the SSD2677 datasheet.

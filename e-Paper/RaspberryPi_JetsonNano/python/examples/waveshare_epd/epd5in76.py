@@ -23,6 +23,11 @@ import time
 
 from PIL import Image
 
+try:
+    import numpy as np
+except ImportError:  # falls back to slower pure-Python conversion
+    np = None
+
 from . import epdconfig
 
 EPD_WIDTH = 920
@@ -53,6 +58,9 @@ def _build_tables():
 
 
 _FULL, _PART = _build_tables()
+if np is not None:
+    _FULL_NP = np.frombuffer(b''.join(_FULL), dtype=np.uint8).reshape(256, 2)
+    _PART_NP = np.frombuffer(b''.join(_PART), dtype=np.uint8).reshape(65536, 2)
 
 
 class EPD:
@@ -266,10 +274,18 @@ class EPD:
         self.ReadBusy()
         if self._partial:
             old = self._prev if self._prev is not None else b'\xff' * len(buf)
-            data = b''.join([_PART[(o << 8) | n] for o, n in zip(old, buf)])
+            if np is not None:
+                idx = (np.frombuffer(old, dtype=np.uint8).astype(np.uint16) << 8) \
+                    | np.frombuffer(buf, dtype=np.uint8)
+                data = _PART_NP[idx].tobytes()
+            else:
+                data = b''.join([_PART[(o << 8) | n] for o, n in zip(old, buf)])
             self.partial_count += 1
         else:
-            data = b''.join(map(_FULL.__getitem__, buf))
+            if np is not None:
+                data = _FULL_NP[np.frombuffer(buf, dtype=np.uint8)].tobytes()
+            else:
+                data = b''.join(map(_FULL.__getitem__, buf))
         t1 = time.time()
         self.send_data_block(data)
         t2 = time.time()

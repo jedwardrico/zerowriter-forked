@@ -64,10 +64,12 @@ class EPD:
         self.height = EPD_HEIGHT
         self.busy_timeout_s = 30
 
-        # Degrees to rotate the image before sending: 0 or 180. The demo's
-        # scan direction shows the image upside down on this mounting, so
-        # default to 180. Set to 0 if your panel is mounted the other way up.
-        self.rotation = 180
+        # Orientation fix-ups applied to the image before sending. With the
+        # demo's scan direction this panel shows the image flipped top to
+        # bottom, so flip_y is on by default. If text is mirrored left to
+        # right, toggle flip_x; if it is upside down, toggle flip_y.
+        self.flip_x = False
+        self.flip_y = True
 
         # Value for register 0xE6 (forced temperature) from the demo's table.
         # 241 is the 20-30 C setting. See set_temperature().
@@ -234,8 +236,10 @@ class EPD:
                            image.size, self.width, self.height)
             return None
         img = img.convert('1')
-        if self.rotation == 180:
-            img = img.transpose(Image.ROTATE_180)
+        if self.flip_x:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if self.flip_y:
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
         return img.tobytes()
 
     def display(self, buf):

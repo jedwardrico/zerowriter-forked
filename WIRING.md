@@ -48,3 +48,18 @@ datasheet (header P2 labels, DIP switch P3). Pi pins come from `epdconfig.py`
 - CS is active low. D/C high = data, low = command. RES is active low.
 - BUSY is active low (BUSY_N): the pin reads 0 while the panel is busy and 1 when ready. This matches the SSD2677 datasheet and Good Display's demo code (`lcd_chkstatus` waits for 1). The GDEH0576T81 datasheet note saying "busy = high" is wrong or misleading.
 - Driver: `e-Paper/RaspberryPi_JetsonNano/python/examples/waveshare_epd/epd5in76.py`, ported from Good Display's Arduino demo. `main.py` uses it.
+
+## Software notes (GDEH0576T81)
+
+Driver: `e-Paper/RaspberryPi_JetsonNano/python/examples/waveshare_epd/epd5in76.py`.
+
+- Orientation: the demo's scan direction shows the image flipped top to bottom, so the driver flips it back (`flip_y = True`). If your panel is mounted differently, toggle `flip_x` / `flip_y` in the driver.
+- Speed: typing redraws only the bottom 240 rows (about 310 ms per update). The whole screen takes about 800 ms. A strip of fewer rows is faster but dimmer; 120 rows is unreadable. Tune with environment variables when starting `main.py`:
+  - `ZW_STRIP_ROWS` (default 240, minimum 120, 0 = always update the whole screen)
+  - `ZW_STRIP_REPEAT` (default 1; resends each strip update for more contrast)
+  - `ZW_FULL_REFRESH_AFTER` (default 60; full-screen refresh after this many partial updates, to clear ghosting)
+  - `ZW_TIMING=1` prints the time each update takes.
+- SPI clock is 10 MHz (`spi_speed_hz` in the driver). The datasheet leaves the maximum as TBD; lower it if the screen shows garbage.
+- Install `python3-numpy` (frame conversion is about 6x faster with it).
+- Forcing the waveform temperature in partial mode made refreshes slower (645 ms unforced vs 900+ ms), so the chip's own sensor is used.
+- `examples/window_test.py` is the standalone test that was used to find the strip-update settings. Run it with `sudo python3 window_test.py`, not while `main.py` is running.

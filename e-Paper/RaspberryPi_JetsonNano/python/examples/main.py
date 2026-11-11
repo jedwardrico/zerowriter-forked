@@ -48,7 +48,7 @@ chars_per_line = 52
 lines_on_screen = 17
 # partial updates leave ghosting; after this many, the next full redraw
 # (new line / scroll) also does a full-screen refresh. Tune to taste.
-FULL_REFRESH_AFTER = 30
+FULL_REFRESH_AFTER = int(os.environ.get('ZW_FULL_REFRESH_AFTER', 60))
 # Typing only redraws the bottom INPUT_STRIP_ROWS lines of the screen (the
 # input line plus the lines just above it). A strip updates much faster than
 # the whole screen: ~315 ms for 240 rows vs ~800 ms full-frame. Fewer rows are

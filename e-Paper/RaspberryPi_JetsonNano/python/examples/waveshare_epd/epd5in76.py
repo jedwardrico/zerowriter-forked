@@ -64,6 +64,11 @@ class EPD:
         self.height = EPD_HEIGHT
         self.busy_timeout_s = 30
 
+        # Degrees to rotate the image before sending: 0 or 180. The demo's
+        # scan direction shows the image upside down on this mounting, so
+        # default to 180. Set to 0 if your panel is mounted the other way up.
+        self.rotation = 180
+
         # Value for register 0xE6 (forced temperature) from the demo's table.
         # 241 is the 20-30 C setting. See set_temperature().
         self.temperature_code = 241
@@ -228,7 +233,10 @@ class EPD:
             logger.warning("Wrong image size %s, expected %dx%d",
                            image.size, self.width, self.height)
             return None
-        return img.convert('1').tobytes()
+        img = img.convert('1')
+        if self.rotation == 180:
+            img = img.transpose(Image.ROTATE_180)
+        return img.tobytes()
 
     def display(self, buf):
         """Show a getbuffer() frame. Full or partial depending on last init."""

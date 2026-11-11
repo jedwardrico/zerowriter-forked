@@ -78,12 +78,6 @@ class EPD:
         # the maximum clock as TBD, so if the screen shows garbage, lower it.
         self.spi_speed_hz = 10000000
 
-        # Experiment: force the waveform temperature (degrees C) in partial
-        # mode too. None = let the chip use its own sensor, as in the demo.
-        # Can be set from the environment, e.g. ZW_PARTIAL_TEMP=35.
-        env_temp = os.environ.get('ZW_PARTIAL_TEMP')
-        self.partial_temperature = float(env_temp) if env_temp else None
-
         # Set ZW_TIMING=1 in the environment to print per-update timings.
         self.timing = bool(os.environ.get('ZW_TIMING'))
 
@@ -140,22 +134,18 @@ class EPD:
                 return
             epdconfig.delay_ms(5)
 
-    @staticmethod
-    def _temperature_code(celsius):
-        """Waveform temperature code (same thresholds as the demo)."""
-        if celsius <= 5:
-            return 232
-        elif celsius <= 10:
-            return 235
-        elif celsius <= 20:
-            return 238
-        elif celsius <= 30:
-            return 241
-        return 244
-
     def set_temperature(self, celsius):
-        """Pick the waveform temperature code for full updates."""
-        self.temperature_code = self._temperature_code(celsius)
+        """Pick the waveform temperature code (same thresholds as the demo)."""
+        if celsius <= 5:
+            self.temperature_code = 232
+        elif celsius <= 10:
+            self.temperature_code = 235
+        elif celsius <= 20:
+            self.temperature_code = 238
+        elif celsius <= 30:
+            self.temperature_code = 241
+        else:
+            self.temperature_code = 244
 
     def _open(self):
         if not self._module_open:
@@ -244,12 +234,7 @@ class EPD:
 
         # Partial waveform from OTP
         self.send_command(0xE0)
-        if self.partial_temperature is None:
-            self.send_data(0x00)
-        else:
-            self.send_data(0x02)  # force temperature, as in the full init
-            self.send_command(0xE6)
-            self.send_data(self._temperature_code(self.partial_temperature))
+        self.send_data(0x00)
         self.send_command(0xA5)
         self.ReadBusy()
 

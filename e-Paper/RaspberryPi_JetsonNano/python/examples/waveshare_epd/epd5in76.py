@@ -17,10 +17,16 @@
 #   panel's life).
 
 import logging
+import os
 import struct
 import time
 
 from PIL import Image
+
+try:
+    import numpy as np
+except ImportError:  # falls back to slower pure-Python conversion
+    np = None
 
 from . import epdconfig
 
@@ -52,6 +58,9 @@ def _build_tables():
 
 
 _FULL, _PART = _build_tables()
+if np is not None:
+    _FULL_NP = np.frombuffer(b''.join(_FULL), dtype=np.uint8).reshape(256, 2)
+    _PART_NP = np.frombuffer(b''.join(_PART), dtype=np.uint8).reshape(65536, 2)
 
 
 class EPD:
@@ -63,6 +72,14 @@ class EPD:
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
         self.busy_timeout_s = 30
+
+        # SPI clock. The repo default of 4 MHz makes sending a frame take
+        # ~0.3 s. 10 MHz cuts that to ~0.13 s. The SSD2677 datasheet leaves
+        # the maximum clock as TBD, so if the screen shows garbage, lower it.
+        self.spi_speed_hz = 10000000
+
+        # Set ZW_TIMING=1 in the environment to print per-update timings.
+        self.timing = bool(os.environ.get('ZW_TIMING'))
 
         # Orientation fix-ups applied to the image before sending. With the
         # demo's scan direction this panel shows the image flipped top to
@@ -135,6 +152,7 @@ class EPD:
             if epdconfig.module_init() != 0:
                 return -1
             self._module_open = True
+        epdconfig.SPI.max_speed_hz = self.spi_speed_hz
         return 0
 
     def _common_init(self):
@@ -242,21 +260,122 @@ class EPD:
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
         return img.tobytes()
 
+    @staticmethod
+    def _interleave(old, new):
+        """(old, new) 1bpp bytes -> 2bpp partial-update data."""
+        if np is not None:
+            idx = (np.frombuffer(old, dtype=np.uint8).astype(np.uint16) << 8) \
+                | np.frombuffer(new, dtype=np.uint8)
+            return _PART_NP[idx].tobytes()
+        return b''.join([_PART[(o << 8) | n] for o, n in zip(old, new)])
+
+    def display_window(self, buf, y0, rows, repeat=1):
+        """EXPERIMENTAL: partial update of only buffer rows y0..y0+rows.
+
+        Narrows the controller's resolution (TRES, 0x61) to `rows` lines and
+        sets the gate start line (GSST, 0x65). `buf` is a full-frame
+        getbuffer() result (already flipped); only the window rows are sent.
+
+        Measured on the panel: GSST counts gate lines from the physical top
+        of the screen, while buffer row 0 is at the bottom, so the gate start
+        is height - (y0 + rows). A 120-row window refreshes in ~120 ms but
+        with much less drive time per pixel (dim), so `repeat` re-sends the
+        same old/new data that many times to build contrast.
+        The datasheet says VRES must be >= 120. Partial mode only.
+        """
+        if not self._partial:
+            raise RuntimeError("display_window needs init_Partial() first")
+        rows = max(120, min(rows, self.height))
+        y0 = max(0, min(y0, self.height - rows))
+        row_bytes = self.width // 8
+        lo, hi = y0 * row_bytes, (y0 + rows) * row_bytes
+        prev = self._prev if self._prev is not None else b'\xff' * len(buf)
+        if prev[lo:hi] == buf[lo:hi]:
+            return  # nothing changed in this window
+        gate_start = self.height - (y0 + rows)
+        t0 = time.time()
+
+        self.send_command(0x61)  # TRES: window size
+        for b in (self.width // 256, self.width % 256, rows // 256, rows % 256):
+            self.send_data(b)
+        if gate_start:
+            self.send_command(0x65)  # GSST: gate start line (layout guessed)
+            for b in (0x00, 0x00, (gate_start >> 8) & 0x03, gate_start & 0xFF):
+                self.send_data(b)
+
+        data = self._interleave(prev[lo:hi], buf[lo:hi])
+        t1 = time.time()
+        spi_s = refresh_s = 0.0
+        for _ in range(max(1, repeat)):
+            self.send_command(0x10)
+            self.ReadBusy()
+            ta = time.time()
+            self.send_data_block(data)
+            tb = time.time()
+            self._update()
+            tc = time.time()
+            spi_s += tb - ta
+            refresh_s += tc - tb
+        t2 = t1 + spi_s
+        t3 = t2 + refresh_s
+
+        # restore the full-frame window for normal updates
+        self.send_command(0x61)
+        for b in (self.width // 256, self.width % 256,
+                  self.height // 256, self.height % 256):
+            self.send_data(b)
+        if gate_start:
+            self.send_command(0x65)
+            for _ in range(4):
+                self.send_data(0x00)
+
+        self._prev = prev[:lo] + buf[lo:hi] + prev[hi:]
+        self.partial_count += 1
+        if self.timing:
+            print("epd window gate %d+%d x%d: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
+                gate_start, rows, repeat, (t1 - t0) * 1000, (t2 - t1) * 1000,
+                (t3 - t2) * 1000, (time.time() - t0) * 1000))
+
+    def display_bottom_strip(self, buf, rows, repeat=1):
+        """Update only the bottom `rows` lines of the image (as shown on
+        screen). Falls back to a full-frame update if that isn't possible."""
+        if not (self._partial and self.flip_y) or rows >= self.height:
+            self.display(buf)
+            return
+        # with flip_y the image's bottom rows are the first buffer rows
+        self.display_window(buf, 0, rows, repeat)
+
     def display(self, buf):
         """Show a getbuffer() frame. Full or partial depending on last init."""
         if buf is None:
             return
+        # Nothing changed since the last partial update: skip the whole
+        # transfer and refresh (this is the common case while the main loop
+        # keeps redrawing the same input line).
+        if self._partial and buf == self._prev:
+            return
+        t0 = time.time()
         self.send_command(0x10)
         self.ReadBusy()
         if self._partial:
             old = self._prev if self._prev is not None else b'\xff' * len(buf)
-            data = b''.join([_PART[(o << 8) | n] for o, n in zip(old, buf)])
+            data = self._interleave(old, buf)
             self.partial_count += 1
         else:
-            data = b''.join(map(_FULL.__getitem__, buf))
+            if np is not None:
+                data = _FULL_NP[np.frombuffer(buf, dtype=np.uint8)].tobytes()
+            else:
+                data = b''.join(map(_FULL.__getitem__, buf))
+        t1 = time.time()
         self.send_data_block(data)
+        t2 = time.time()
         self._update()
         self._prev = buf
+        if self.timing:
+            t3 = time.time()
+            print("epd %s: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
+                "partial" if self._partial else "full",
+                (t1 - t0) * 1000, (t2 - t1) * 1000, (t3 - t2) * 1000, (t3 - t0) * 1000))
 
     def Clear(self):
         """Fill the screen white (uses the current init mode)."""

@@ -6,6 +6,7 @@ Requirements:
 - Pi Zero 2W
 - Micro SD Card (faster is better, in theory)
 - Waveshare 4.2" wired into the Pi Zero 2W (refer to https://www.waveshare.com/wiki/4.2inch_e-Paper_Module_Manual pinouts)
+- (This fork) Good Display GDEH0576T81 5.76" display on a DESPI-C02 board instead of the Waveshare 4.2". See WIRING.md for the wiring and board settings.
 - Power for your Pi Zero
 
 1. Run The Raspberry Pi Imager
@@ -41,6 +42,7 @@ Follow these commands in order to set up the pi zero with the stuff it needs to 
 - sudo apt full-upgrade
 
 - sudo apt install pip
+- sudo apt install python3-spidev python3-rpi.gpio
 - sudo apt-get install python3-pil
 - sudo apt-get install python3-numpy
 - sudo pip3 install keyboard

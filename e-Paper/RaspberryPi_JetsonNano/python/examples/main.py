@@ -48,8 +48,19 @@ chars_per_line = 52
 lines_on_screen = 17
 # partial updates leave ghosting; after this many, the next full redraw
 # (new line / scroll) also does a full-screen refresh. Tune to taste.
-FULL_REFRESH_AFTER = 30
+FULL_REFRESH_AFTER = int(os.environ.get('ZW_FULL_REFRESH_AFTER', 60))
+# Typing only redraws the bottom INPUT_STRIP_ROWS lines of the screen (the
+# input line plus the lines just above it). A strip updates much faster than
+# the whole screen: ~315 ms for 240 rows vs ~800 ms full-frame. Fewer rows are
+# faster but dimmer (120 is unreadable). Set to 0 to always update the whole
+# screen. Try e.g. ZW_STRIP_ROWS=300 for more contrast.
+INPUT_STRIP_ROWS = int(os.environ.get('ZW_STRIP_ROWS', 240))
+INPUT_STRIP_REPEAT = int(os.environ.get('ZW_STRIP_REPEAT', 1))
 last_display_update = time.time()
+# (input_content, cursor_position) as last drawn on the screen; None = the
+# input line is not currently drawn. Used to redraw whenever the text has
+# changed, including keys typed while a previous update was still running.
+last_input_rendered = None
 
 #display related
 needs_display_update = True
@@ -106,7 +117,9 @@ def update_display():
     global console_message
     global current_line
     global scrollindex
+    global last_input_rendered
     
+    last_input_rendered = None  # the clear below also erases the input line
     # Clear the main display area -- also clears input line
     display_draw.rectangle((0, 0, SCREEN_W, SCREEN_H), fill=255)
     
@@ -149,12 +162,17 @@ def update_input_area(): #this updates the input area of the typewriter (active 
     global cursor_index
     global needs_input_update
     global updating_input_area
+    global last_input_rendered
 
+    # snapshot the text now; keys typed while this update runs will make the
+    # snapshot differ from the live state, so the main loop redraws again
+    content = input_content
     cursor_index = cursor_position
+    last_input_rendered = (content, cursor_index)
     display_draw.rectangle((0, INPUT_Y, SCREEN_W, SCREEN_H), fill=255)  # Clear input area
     
     #add cursor
-    temp_content = input_content[:cursor_index] + "|" + input_content[cursor_index:]
+    temp_content = content[:cursor_index] + "|" + content[cursor_index:]
     
     #draw input line text
     display_draw.text((10, INPUT_Y), str(temp_content), font=font24, fill=0)
@@ -162,7 +180,10 @@ def update_input_area(): #this updates the input area of the typewriter (active 
     #generate display buffer for input line
     updating_input_area = True
     partial_buffer = epd.getbuffer(display_image)
-    epd.display(partial_buffer)
+    if INPUT_STRIP_ROWS >= 120:
+        epd.display_bottom_strip(partial_buffer, INPUT_STRIP_ROWS, INPUT_STRIP_REPEAT)
+    else:
+        epd.display(partial_buffer)
     updating_input_area = False
     
 def insert_character(character):
@@ -405,11 +426,11 @@ try:
             needs_diplay_update=False
             typing_last_time = time.time()
             
-        elif (time.time()-typing_last_time)<(.5): #if not doing a full refresh, do partials
-            #the screen enters a high refresh mode when there has been keyboard input
-            if not updating_input_area and scrollindex==1:
-                update_input_area()
-        #time.sleep(0.05) #the sleep here seems to help the processor handle things, especially on 64-bit installs
+        elif scrollindex==1 and not updating_input_area and (input_content, cursor_position) != last_input_rendered:
+            #redraw the input line whenever the text differs from what is on screen.
+            #(the old "within 0.5s of the last key" rule dropped letters typed during a slow update)
+            update_input_area()
+        time.sleep(0.02) # keeps the main loop from hogging the CPU (and starving the keyboard thread)
         
 except KeyboardInterrupt:
     pass

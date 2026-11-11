@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 from waveshare_epd import epd5in76
 
 epd = epd5in76.EPD()
+epd.timing = True
 W, H = epd.width, epd.height
 font = ImageFont.truetype('Courier Prime.ttf', 28)
 big = ImageFont.truetype('Courier Prime.ttf', 56)

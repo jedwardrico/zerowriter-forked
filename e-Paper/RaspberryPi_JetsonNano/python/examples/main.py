@@ -49,6 +49,13 @@ lines_on_screen = 17
 # partial updates leave ghosting; after this many, the next full redraw
 # (new line / scroll) also does a full-screen refresh. Tune to taste.
 FULL_REFRESH_AFTER = 30
+# Typing only redraws the bottom INPUT_STRIP_ROWS lines of the screen (the
+# input line plus the lines just above it). A strip updates much faster than
+# the whole screen: ~315 ms for 240 rows vs ~800 ms full-frame. Fewer rows are
+# faster but dimmer (120 is unreadable). Set to 0 to always update the whole
+# screen. Try e.g. ZW_STRIP_ROWS=300 for more contrast.
+INPUT_STRIP_ROWS = int(os.environ.get('ZW_STRIP_ROWS', 240))
+INPUT_STRIP_REPEAT = int(os.environ.get('ZW_STRIP_REPEAT', 1))
 last_display_update = time.time()
 # (input_content, cursor_position) as last drawn on the screen; None = the
 # input line is not currently drawn. Used to redraw whenever the text has
@@ -173,7 +180,10 @@ def update_input_area(): #this updates the input area of the typewriter (active 
     #generate display buffer for input line
     updating_input_area = True
     partial_buffer = epd.getbuffer(display_image)
-    epd.display(partial_buffer)
+    if INPUT_STRIP_ROWS >= 120:
+        epd.display_bottom_strip(partial_buffer, INPUT_STRIP_ROWS, INPUT_STRIP_REPEAT)
+    else:
+        epd.display(partial_buffer)
     updating_input_area = False
     
 def insert_character(character):

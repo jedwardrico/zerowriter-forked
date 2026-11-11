@@ -290,6 +290,8 @@ class EPD:
         row_bytes = self.width // 8
         lo, hi = y0 * row_bytes, (y0 + rows) * row_bytes
         prev = self._prev if self._prev is not None else b'\xff' * len(buf)
+        if prev[lo:hi] == buf[lo:hi]:
+            return  # nothing changed in this window
         gate_start = self.height - (y0 + rows)
         t0 = time.time()
 
@@ -329,9 +331,19 @@ class EPD:
 
         self._prev = prev[:lo] + buf[lo:hi] + prev[hi:]
         self.partial_count += 1
-        print("epd window gate %d+%d x%d: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
-            gate_start, rows, repeat, (t1 - t0) * 1000, (t2 - t1) * 1000,
-            (t3 - t2) * 1000, (time.time() - t0) * 1000))
+        if self.timing:
+            print("epd window gate %d+%d x%d: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
+                gate_start, rows, repeat, (t1 - t0) * 1000, (t2 - t1) * 1000,
+                (t3 - t2) * 1000, (time.time() - t0) * 1000))
+
+    def display_bottom_strip(self, buf, rows, repeat=1):
+        """Update only the bottom `rows` lines of the image (as shown on
+        screen). Falls back to a full-frame update if that isn't possible."""
+        if not (self._partial and self.flip_y) or rows >= self.height:
+            self.display(buf)
+            return
+        # with flip_y the image's bottom rows are the first buffer rows
+        self.display_window(buf, 0, rows, repeat)
 
     def display(self, buf):
         """Show a getbuffer() frame. Full or partial depending on last init."""

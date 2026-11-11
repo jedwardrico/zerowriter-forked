@@ -260,6 +260,66 @@ class EPD:
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
         return img.tobytes()
 
+    @staticmethod
+    def _interleave(old, new):
+        """(old, new) 1bpp bytes -> 2bpp partial-update data."""
+        if np is not None:
+            idx = (np.frombuffer(old, dtype=np.uint8).astype(np.uint16) << 8) \
+                | np.frombuffer(new, dtype=np.uint8)
+            return _PART_NP[idx].tobytes()
+        return b''.join([_PART[(o << 8) | n] for o, n in zip(old, new)])
+
+    def display_window(self, buf, y0, rows):
+        """EXPERIMENTAL: partial update of only buffer rows y0..y0+rows.
+
+        Narrows the controller's resolution (TRES, 0x61) to `rows` lines and,
+        if y0 > 0, sets the gate start line (GSST, 0x65). The meaning of GSST
+        is inferred from the demo's "GSST" label and similar controllers; it
+        is not documented in the datasheets we have. `buf` is a full-frame
+        getbuffer() result (already flipped); only the window rows are sent.
+        The datasheet says VRES must be >= 120. Partial mode only.
+        """
+        if not self._partial:
+            raise RuntimeError("display_window needs init_Partial() first")
+        rows = max(120, min(rows, self.height))
+        y0 = max(0, min(y0, self.height - rows))
+        row_bytes = self.width // 8
+        lo, hi = y0 * row_bytes, (y0 + rows) * row_bytes
+        prev = self._prev if self._prev is not None else b'\xff' * len(buf)
+        t0 = time.time()
+
+        self.send_command(0x61)  # TRES: window size
+        for b in (self.width // 256, self.width % 256, rows // 256, rows % 256):
+            self.send_data(b)
+        if y0:
+            self.send_command(0x65)  # GSST: gate start line (guessed layout)
+            for b in (0x00, 0x00, (y0 >> 8) & 0x03, y0 & 0xFF):
+                self.send_data(b)
+
+        self.send_command(0x10)
+        self.ReadBusy()
+        data = self._interleave(prev[lo:hi], buf[lo:hi])
+        t1 = time.time()
+        self.send_data_block(data)
+        t2 = time.time()
+        self._update()
+        t3 = time.time()
+
+        # restore the full-frame window for normal updates
+        self.send_command(0x61)
+        for b in (self.width // 256, self.width % 256,
+                  self.height // 256, self.height % 256):
+            self.send_data(b)
+        if y0:
+            self.send_command(0x65)
+            for _ in range(4):
+                self.send_data(0x00)
+
+        self._prev = prev[:lo] + buf[lo:hi] + prev[hi:]
+        self.partial_count += 1
+        print("epd window rows %d+%d: convert %.0fms  spi %.0fms  refresh %.0fms  total %.0fms" % (
+            y0, rows, (t1 - t0) * 1000, (t2 - t1) * 1000, (t3 - t2) * 1000, (t3 - t0) * 1000))
+
     def display(self, buf):
         """Show a getbuffer() frame. Full or partial depending on last init."""
         if buf is None:
@@ -274,12 +334,7 @@ class EPD:
         self.ReadBusy()
         if self._partial:
             old = self._prev if self._prev is not None else b'\xff' * len(buf)
-            if np is not None:
-                idx = (np.frombuffer(old, dtype=np.uint8).astype(np.uint16) << 8) \
-                    | np.frombuffer(buf, dtype=np.uint8)
-                data = _PART_NP[idx].tobytes()
-            else:
-                data = b''.join([_PART[(o << 8) | n] for o, n in zip(old, buf)])
+            data = self._interleave(old, buf)
             self.partial_count += 1
         else:
             if np is not None:

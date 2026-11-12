@@ -33,3 +33,12 @@ Nextcloud/WebDAV, S3 and many more, so you pick the service.
 Credentials live in rclone's config (`/root/.config/rclone/rclone.conf`), not in this
 repository. For a Google Drive account you care about, consider rclone's `drive.file`
 scope, which lets it see only the files it created.
+
+## Possible follow-ups
+
+- **Back up on idle:** run the backup automatically after a stretch with no typing (e.g. a few
+  minutes), only if something changed since the last successful sync. Should stay silent if
+  the Pi is offline rather than showing `[Failed]` over and over.
+- **Back up on power-down:** run the backup on Ctrl+Esc before `poweroff`. Needs a short
+  timeout so a missing wifi connection can't delay shutdown, and an on-screen "Backing up..."
+  note instead of the usual power-down message while it runs.

@@ -18,6 +18,7 @@ import time
 import keyboard
 import keymaps
 import textfmt
+import cloud
 from PIL import Image, ImageDraw, ImageFont
 from waveshare_epd import epd5in76
 import textwrap
@@ -541,6 +542,20 @@ def handle_modal_key(e):
     elif e.name == "esc":
         end_modal()
 
+def start_cloud_backup():
+    """Ctrl+E: copy saved documents to the cloud remote, without blocking typing."""
+    if current_doc:
+        save_current_doc()  # make sure the open document is up to date first
+    console_message_set("[Syncing]")
+    update_display()
+
+    def worker():
+        ok, message = cloud.backup(DOCS_DIR, DATA_DIR)
+        console_message_set(message)
+        update_display()
+
+    threading.Thread(target=worker, daemon=True).start()
+
 def console_message_set(msg):
     global console_message
     console_message = msg
@@ -602,6 +617,11 @@ def handle_key_press(e):
     #open a saved file via ctrl + o
     if e.name== "o" and control_active:
         start_browser()
+        return
+
+    #send saved documents to the cloud via ctrl + e (needs rclone, see CLOUD_BACKUP.md)
+    if e.name== "e" and control_active:
+        start_cloud_backup()
         return
 
     #bold / italic / underline via ctrl + b / i / u

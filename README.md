@@ -106,3 +106,17 @@ Steps to use a Bluetooth Keyboard
 
 https://www.youtube.com/watch?v=UEmSsscijKE has a video walkthrough of the above steps as well.
 
+
+----------
+
+Files and shortcuts (GDEH0576T81 version):
+
+The bottom line of the screen shows the file name, word count and page number.
+Files are stored as plain text in `e-Paper/RaspberryPi_JetsonNano/python/examples/data/documents/`.
+
+- Ctrl+S: save (asks for a file name the first time; Enter confirms, Esc cancels). Enter also autosaves a named file.
+- Ctrl+R: rename / save as
+- Ctrl+O: open a saved file (Up/Down to choose, Enter to open, Del to delete then y to confirm, Esc to cancel)
+- Ctrl+N: save the current file and start a new one
+- Arrow keys: scroll through pages
+- Ctrl+Esc: power down

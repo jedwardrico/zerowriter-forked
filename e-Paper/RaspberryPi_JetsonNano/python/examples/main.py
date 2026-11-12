@@ -102,14 +102,14 @@ typing_last_time = time.time()  # Timestamp of last key press
 #file directory setup
 # data/cache.txt      working copy of the current text (restored on startup)
 # data/current_doc.txt name of the current document ("" = not saved yet)
-# data/documents/*.txt saved documents
+# data/documents/*.md  saved documents (Markdown: **bold**, *italic*, <u>underline</u>)
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 DOCS_DIR = os.path.join(DATA_DIR, 'documents')
 file_path = os.path.join(DATA_DIR, 'cache.txt')
 current_doc_path = os.path.join(DATA_DIR, 'current_doc.txt')
 os.makedirs(DOCS_DIR, exist_ok=True)
 
-current_doc = None   # document name without ".txt", or None if never saved
+current_doc = None   # document name without ".md", or None if never saved
 mode = 'edit'        # 'edit' | 'prompt' (typing a file name) | 'browse' (file list)
 prompt_label = ""
 prompt_text = ""
@@ -124,7 +124,7 @@ def load_previous_lines(file_path):
     try:
         with open(file_path, 'r') as file:
             lines = file.readlines()
-            return [line.rstrip('\n') for line in lines]
+            return [textfmt.from_markdown(line.rstrip('\n')) for line in lines]
     except FileNotFoundError:
         return []
 
@@ -133,23 +133,24 @@ def save_previous_lines(file_path, lines):
     tmp = file_path + '.tmp'
     with open(tmp, 'w') as file:
         for line in lines:
-            file.write(line + '\n')
+            file.write(textfmt.to_markdown(line) + '\n')
         file.flush()
         os.fsync(file.fileno())
     os.replace(tmp, file_path)
 
 def sanitize_name(name):
     name = re.sub(r'[^A-Za-z0-9 _.-]', '_', name).strip().lstrip('.')
-    if name.lower().endswith('.txt'):
-        name = name[:-4]
+    for ext in ('.md', '.txt'):
+        if name.lower().endswith(ext):
+            name = name[:-len(ext)]
     return name.strip()[:MAX_NAME_LEN]
 
 def doc_path(name):
-    return os.path.join(DOCS_DIR, name + '.txt')
+    return os.path.join(DOCS_DIR, name + '.md')
 
 def list_documents():
     """Saved document names, most recently modified first."""
-    names = [f[:-4] for f in os.listdir(DOCS_DIR) if f.endswith('.txt')]
+    names = [f[:-3] for f in os.listdir(DOCS_DIR) if f.endswith('.md')]
     names.sort(key=lambda n: os.path.getmtime(doc_path(n)), reverse=True)
     return names
 
@@ -159,7 +160,7 @@ def doc_info(name):
     date = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(path)))
     try:
         with open(path) as f:
-            words = len(textfmt.strip_markers(f.read()).split())
+            words = len(textfmt.strip_markers(textfmt.from_markdown(f.read())).split())
     except OSError:
         words = 0
     return date, words

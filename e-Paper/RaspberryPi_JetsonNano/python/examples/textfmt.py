@@ -115,3 +115,72 @@ def draw_formatted(image, draw, x, y, text, font, state=(False, False, False), l
             run += c
     x += _draw_run(image, draw, x, y, run, font, bold, italic, underline, line_h)
     return x, (bold, italic, underline)
+
+
+# ---- Markdown on disk -------------------------------------------------------
+# bold = **x**, italic = *x*, underline = <u>x</u> (Markdown has no underline).
+# Each line is converted on its own, so a style that spans a wrapped line break
+# is closed at the end of one line and reopened on the next.
+
+import re
+
+_ESCAPE = re.compile(r'([\\*_<`])')
+_MD_TOKEN = re.compile(r'\\[\\*_<`]|<u>|</u>|\*\*\*|\*\*|\*')
+
+
+def _wrap_md(text, bold, italic, underline):
+    text = _ESCAPE.sub(r'\\\1', text)
+    stars = '*' * ((2 if bold else 0) + (1 if italic else 0))
+    text = stars + text + stars
+    return '<u>' + text + '</u>' if underline else text
+
+
+def to_markdown(line):
+    """One line with style markers -> Markdown."""
+    runs, buf, state = [], '', (False, False, False)
+    for c in line:
+        if c in _ORDER:
+            if buf:
+                runs.append((buf, state))
+            buf = ''
+            s = list(state)
+            s[_ORDER[c]] = not s[_ORDER[c]]
+            state = tuple(s)
+        else:
+            buf += c
+    if buf:
+        runs.append((buf, state))
+    out = []
+    for text, st in runs:
+        if not any(st):
+            out.append(_ESCAPE.sub(r'\\\1', text))
+            continue
+        # Markdown won't close emphasis after whitespace, so keep it outside
+        core = text.strip(' ')
+        if not core:
+            out.append(text)
+            continue
+        lead = text[:len(text) - len(text.lstrip(' '))]
+        trail = text[len(text.rstrip(' ')):]
+        out.append(lead + _wrap_md(core, *st) + trail)
+    return ''.join(out)
+
+
+def from_markdown(line):
+    """One line of Markdown -> text with style markers."""
+    out, pos = [], 0
+    for m in _MD_TOKEN.finditer(line):
+        out.append(line[pos:m.start()])
+        tok = m.group()
+        if tok[0] == '\\':
+            out.append(tok[1])
+        elif tok in ('<u>', '</u>'):
+            out.append(UNDERLINE)
+        else:
+            if len(tok) >= 2:
+                out.append(BOLD)
+            if len(tok) % 2 == 1:
+                out.append(ITALIC)
+        pos = m.end()
+    out.append(line[pos:])
+    return ''.join(out)

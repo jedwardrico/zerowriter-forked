@@ -390,15 +390,21 @@ def handle_key_press(e):
         needs_input_update = True
 
         # Check if adding the character exceeds the line length limit
-        if cursor_position > chars_per_line:
+        if len(input_content) > chars_per_line:
             # Find the last space character before the line length limit
             last_space = input_content.rfind(' ', 0, chars_per_line)
-            sentence = input_content[:last_space]
+            if last_space <= 0:
+                # No usable space (one long unbroken word): hard-break at the
+                # limit. (Splitting at -1 used to append a near-copy of the
+                # word as a new line on every extra keystroke.)
+                sentence = input_content[:chars_per_line]
+                input_content = input_content[chars_per_line:]
+            else:
+                sentence = input_content[:last_space]
+                # Update input_content to contain the remaining characters
+                input_content = input_content[last_space + 1:]
             # Append the sentence to the previous lines
-            previous_lines.append(sentence)                
-
-            # Update input_content to contain the remaining characters
-            input_content = input_content[last_space + 1:]
+            previous_lines.append(sentence)
             needs_display_update=True
             
         # Update cursor_position to the length of the remaining input_content

@@ -186,9 +186,11 @@ def total_pages():
 def current_page():
     return max(1, total_pages() - scrollindex + 1)
 
-def reading_time(words, wpm=200):
-    """Estimated time to read the document, as HH:MM:SS."""
-    secs = int(words * 60 / wpm)
+session_start = time.time()  # when this writing session began (program start)
+
+def session_time():
+    """Time since the program started, as HH:MM:SS."""
+    secs = int(time.time() - session_start)
     return f"{secs // 3600:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}"
 
 # The keyboard callbacks run on their own thread and call update_display(),
@@ -231,8 +233,8 @@ def draw_status():
     words = word_count()
     val_y, label_y = div_y + 8, div_y + 44
     left_x, right_x = SCREEN_W * 0.17, SCREEN_W * 0.83
-    draw_centered(left_x, val_y + 4, reading_time(words), font_status)
-    draw_centered(left_x, label_y, "Reading Time", font_small)
+    draw_centered(left_x, val_y + 4, session_time(), font_status)
+    draw_centered(left_x, label_y, "Session Time", font_small)
     draw_centered(SCREEN_W / 2, val_y, f"Words: {words:,}", font_big)
     draw_centered(right_x, val_y + 4, f"{char_count():,}", font_status)
     draw_centered(right_x, label_y, "Characters", font_small)

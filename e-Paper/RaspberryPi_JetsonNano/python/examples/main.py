@@ -17,6 +17,7 @@
 import time
 import keyboard
 import keymaps
+import textfmt
 from PIL import Image, ImageDraw, ImageFont
 from waveshare_epd import epd5in76
 import textwrap
@@ -158,14 +159,14 @@ def doc_info(name):
     date = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(path)))
     try:
         with open(path) as f:
-            words = len(f.read().split())
+            words = len(textfmt.strip_markers(f.read()).split())
     except OSError:
         words = 0
     return date, words
 
 def doc_lines():
     """The whole document as lines, including the line being typed."""
-    return previous_lines + ([input_content] if input_content else [])
+    return previous_lines + ([input_content] if textfmt.strip_markers(input_content) else [])
 
 def save_current_doc():
     """Write the working copy, and the named document if there is one."""
@@ -186,11 +187,11 @@ def load_current_doc_name():
     return name if name and os.path.exists(doc_path(name)) else None
 
 def word_count():
-    return sum(len(l.split()) for l in previous_lines) + len(input_content.split())
+    return sum(len(textfmt.strip_markers(l).split()) for l in previous_lines) + len(textfmt.strip_markers(input_content).split())
 
 def char_count():
     # +1 per finished line for the space/newline at the wrap point
-    return sum(len(l) + 1 for l in previous_lines) + len(input_content)
+    return sum(textfmt.vis_len(l) + 1 for l in previous_lines) + textfmt.vis_len(input_content)
 
 def total_pages():
     return max(1, math.ceil(len(previous_lines) / lines_on_screen))
@@ -287,6 +288,17 @@ def draw_browser():
         pg = f"{browse_index // visible + 1}/{math.ceil(len(browse_files) / visible)}"
         display_draw.text((SCREEN_W - 10 - font_small.getlength(pg), INPUT_Y + 8), pg, font=font_small, fill=0)
 
+def draw_input_text(y, text, cursor):
+    """Draw an input line with styles; the cursor itself is always drawn plain."""
+    x, state = textfmt.draw_formatted(display_image, display_draw, 10, y, text[:cursor], font24, line_h=linespacing)
+    display_draw.text((x, y), "|", font=font24, fill=0)
+    x += font24.getlength("|")
+    textfmt.draw_formatted(display_image, display_draw, x, y, text[cursor:], font24, state, line_h=linespacing)
+
+def new_input_line(finished_line):
+    """Start text for the next input line: carries over any style left open."""
+    return textfmt.active_markers(textfmt.format_state(finished_line))
+
 def current_input():
     """(text, cursor) to show on the input line for the current mode."""
     if mode == 'prompt':
@@ -322,12 +334,13 @@ def update_display(force_full=False):
         draw_browser()
     else:
         for line in reversed(temp[-lines_on_screen:]):
-           display_draw.text((10, y_position), line[:max_chars_per_line], font=font24, fill=0)
+           textfmt.draw_formatted(display_image, display_draw, 10, y_position,
+                                  line[:textfmt.raw_index(line, max_chars_per_line)], font24, line_h=linespacing)
            y_position -= linespacing
 
     if mode == 'prompt':
         text, cursor = current_input()
-        display_draw.text((10, INPUT_Y), text[:cursor] + "|" + text[cursor:], font=font24, fill=0)
+        draw_input_text(INPUT_Y, text, cursor)
 
     draw_status()
 
@@ -368,10 +381,7 @@ def update_input_area(): #this updates the input area of the typewriter (active 
     display_draw.rectangle((0, INPUT_Y, SCREEN_W, SCREEN_H), fill=255)  # Clear input area
     
     #add cursor
-    temp_content = content[:cursor_index] + "|" + content[cursor_index:]
-    
-    #draw input line text
-    display_draw.text((10, INPUT_Y), str(temp_content), font=font24, fill=0)
+    draw_input_text(INPUT_Y, content, cursor_index)
     draw_status()  # word count changes as you type
     
     #generate display buffer for input line
@@ -593,6 +603,14 @@ def handle_key_press(e):
         start_browser()
         return
 
+    #bold / italic / underline via ctrl + b / i / u
+    if control_active and e.name in ("b", "i", "u"):
+        marker = {"b": textfmt.BOLD, "i": textfmt.ITALIC, "u": textfmt.UNDERLINE}[e.name]
+        input_content = textfmt.toggle(input_content, marker)
+        cursor_position = len(input_content)
+        needs_input_update = True
+        return
+
     #new file (clear) via ctrl + n
     if e.name== "n" and control_active: #ctrl+n
         archive_current_doc()
@@ -648,10 +666,10 @@ def handle_key_press(e):
         insert_character(" ")
         
         # Check if adding the character exceeds the line length limit
-        if cursor_position > chars_per_line:
-            previous_lines.append(input_content)                
+        if textfmt.vis_len(input_content) > chars_per_line:
+            previous_lines.append(input_content)
             # Update input_content to contain the remaining characters
-            input_content = ""
+            input_content = new_input_line(input_content)
             needs_display_update = True #trigger a display refresh
         # Update cursor_position to the length of the remaining input_content
         cursor_position = len(input_content)
@@ -668,9 +686,9 @@ def handle_key_press(e):
         insert_character(" ")
         
         # Check if adding the character exceeds the line length limit
-        if cursor_position > chars_per_line:
-            previous_lines.append(input_content)                
-            input_content = ""
+        if textfmt.vis_len(input_content) > chars_per_line:
+            previous_lines.append(input_content)
+            input_content = new_input_line(input_content)
             needs_display_update = True
         # Update cursor_position to the length of the remaining input_content
         cursor_position = len(input_content)
@@ -686,8 +704,8 @@ def handle_key_press(e):
         else:
             # Add the input to the previous_lines array
             previous_lines.append(input_content)
-            input_content = "" #clears input content
-            cursor_position=0
+            input_content = new_input_line(input_content) #clears input content (open styles carry over)
+            cursor_position=len(input_content)
             #save the file when enter is pressed
             save_current_doc()
             needs_display_update = True
@@ -705,19 +723,21 @@ def handle_key_press(e):
         needs_input_update = True
 
         # Check if adding the character exceeds the line length limit
-        if len(input_content) > chars_per_line:
+        if textfmt.vis_len(input_content) > chars_per_line:
             # Find the last space character before the line length limit
-            last_space = input_content.rfind(' ', 0, chars_per_line)
+            # (style markers take no width, so work in visible characters)
+            limit = textfmt.raw_index(input_content, chars_per_line)
+            last_space = input_content.rfind(' ', 0, limit)
             if last_space <= 0:
                 # No usable space (one long unbroken word): hard-break at the
                 # limit. (Splitting at -1 used to append a near-copy of the
                 # word as a new line on every extra keystroke.)
-                sentence = input_content[:chars_per_line]
-                input_content = input_content[chars_per_line:]
+                sentence = input_content[:limit]
+                input_content = textfmt.active_markers(textfmt.format_state(sentence)) + input_content[limit:]
             else:
                 sentence = input_content[:last_space]
                 # Update input_content to contain the remaining characters
-                input_content = input_content[last_space + 1:]
+                input_content = textfmt.active_markers(textfmt.format_state(sentence)) + input_content[last_space + 1:]
             # Append the sentence to the previous lines
             previous_lines.append(sentence)
             needs_display_update=True

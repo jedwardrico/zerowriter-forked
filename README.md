@@ -118,5 +118,6 @@ Files are stored as plain text in `e-Paper/RaspberryPi_JetsonNano/python/example
 - Ctrl+R: rename / save as
 - Ctrl+O: open a saved file (Up/Down to choose (Shift+Up/Down a page at a time), each file shows its date and word count, Enter to open, Del to delete then y to confirm, Esc to cancel)
 - Ctrl+N: save the current file and start a new one
+- Ctrl+B / Ctrl+I / Ctrl+U: toggle bold / italic / underline for the text you type next (press again to turn off; an open style carries over to the next line). Styles are stored in the saved .txt as invisible control characters (0x01 bold, 0x02 italic, 0x03 underline) and are not counted in word/character totals. Since only one font is installed, bold, italic and underline are drawn synthetically.
 - Arrow keys: scroll through pages
 - Ctrl+Esc: power down

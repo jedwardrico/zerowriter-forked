@@ -16,9 +16,11 @@
 # * Always call sleep() when finished (Good Display: otherwise it shortens the
 #   panel's life).
 
+import functools
 import logging
 import os
 import struct
+import threading
 import time
 
 from PIL import Image
@@ -63,8 +65,20 @@ if np is not None:
     _PART_NP = np.frombuffer(b''.join(_PART), dtype=np.uint8).reshape(65536, 2)
 
 
+def _locked(fn):
+    """Run a public driver method under the driver lock. main.py updates the
+    screen from both the keyboard thread and the main loop; without this their
+    SPI commands interleave and the screen / previous-frame state is corrupted."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+    return wrapper
+
+
 class EPD:
     def __init__(self):
+        self._lock = threading.RLock()
         self.reset_pin = epdconfig.RST_PIN
         self.dc_pin = epdconfig.DC_PIN
         self.busy_pin = epdconfig.BUSY_PIN
@@ -207,6 +221,7 @@ class EPD:
 
     # --- public API ------------------------------------------------------
 
+    @_locked
     def init(self):
         """Full-update init (slow waveform, clears ghosting)."""
         if self._open() != 0:
@@ -226,6 +241,7 @@ class EPD:
         self._partial = False
         return 0
 
+    @_locked
     def init_Partial(self):
         """Partial-update init (no flicker). Call display() repeatedly after."""
         if self._open() != 0:
@@ -269,6 +285,7 @@ class EPD:
             return _PART_NP[idx].tobytes()
         return b''.join([_PART[(o << 8) | n] for o, n in zip(old, new)])
 
+    @_locked
     def display_window(self, buf, y0, rows, repeat=1):
         """EXPERIMENTAL: partial update of only buffer rows y0..y0+rows.
 
@@ -336,6 +353,7 @@ class EPD:
                 gate_start, rows, repeat, (t1 - t0) * 1000, (t2 - t1) * 1000,
                 (t3 - t2) * 1000, (time.time() - t0) * 1000))
 
+    @_locked
     def display_bottom_strip(self, buf, rows, repeat=1):
         """Update only the bottom `rows` lines of the image (as shown on
         screen). Falls back to a full-frame update if that isn't possible."""
@@ -345,6 +363,7 @@ class EPD:
         # with flip_y the image's bottom rows are the first buffer rows
         self.display_window(buf, 0, rows, repeat)
 
+    @_locked
     def display(self, buf):
         """Show a getbuffer() frame. Full or partial depending on last init."""
         if buf is None:
@@ -377,10 +396,12 @@ class EPD:
                 "partial" if self._partial else "full",
                 (t1 - t0) * 1000, (t2 - t1) * 1000, (t3 - t2) * 1000, (t3 - t0) * 1000))
 
+    @_locked
     def Clear(self):
         """Fill the screen white (uses the current init mode)."""
         self.display(b'\xff' * (self.width // 8 * self.height))
 
+    @_locked
     def sleep(self):
         self.send_command(0x02)  # power off
         self.send_data(0x00)

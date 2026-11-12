@@ -23,6 +23,8 @@ import textwrap
 import subprocess
 import signal
 import os
+import threading
+import functools
 from pathlib import Path
 
 
@@ -107,7 +109,20 @@ def save_previous_lines(file_path, lines):
         for line in lines:
             file.write(line + '\n')
 
-def update_display():
+# The keyboard callbacks run on their own thread and call update_display(),
+# while the main loop calls update_input_area(). Drawing into display_image and
+# sending it to the panel must not overlap, so both run under this lock.
+display_lock = threading.RLock()
+
+def with_display_lock(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with display_lock:
+            return fn(*args, **kwargs)
+    return wrapper
+
+@with_display_lock
+def update_display(force_full=False):
     global last_display_update
     global needs_display_update
     global cursor_index
@@ -143,7 +158,7 @@ def update_display():
     
     #generate display buffer for display
     partial_buffer = epd.getbuffer(display_image)
-    if epd.partial_count >= FULL_REFRESH_AFTER:
+    if force_full or epd.partial_count >= FULL_REFRESH_AFTER:
         # clear ghosting with a full refresh, then go back to partial mode
         epd.init()
         epd.display(partial_buffer)
@@ -156,6 +171,7 @@ def update_display():
     display_updating= False
     needs_display_update = False
 
+@with_display_lock
 def update_input_area(): #this updates the input area of the typewriter (active line)
     global last_display_update
     global needs_display_update
@@ -264,7 +280,7 @@ def handle_key_press(e):
         input_content = ""
 
         console_message = f"[New]"
-        update_display()
+        update_display(force_full=True)  # clean slate: full refresh clears the old page
         time.sleep(1)
         console_message = ""
         update_display()
@@ -374,15 +390,21 @@ def handle_key_press(e):
         needs_input_update = True
 
         # Check if adding the character exceeds the line length limit
-        if cursor_position > chars_per_line:
+        if len(input_content) > chars_per_line:
             # Find the last space character before the line length limit
             last_space = input_content.rfind(' ', 0, chars_per_line)
-            sentence = input_content[:last_space]
+            if last_space <= 0:
+                # No usable space (one long unbroken word): hard-break at the
+                # limit. (Splitting at -1 used to append a near-copy of the
+                # word as a new line on every extra keystroke.)
+                sentence = input_content[:chars_per_line]
+                input_content = input_content[chars_per_line:]
+            else:
+                sentence = input_content[:last_space]
+                # Update input_content to contain the remaining characters
+                input_content = input_content[last_space + 1:]
             # Append the sentence to the previous lines
-            previous_lines.append(sentence)                
-
-            # Update input_content to contain the remaining characters
-            input_content = input_content[last_space + 1:]
+            previous_lines.append(sentence)
             needs_display_update=True
             
         # Update cursor_position to the length of the remaining input_content

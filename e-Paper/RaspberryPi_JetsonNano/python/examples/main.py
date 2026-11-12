@@ -264,8 +264,7 @@ def draw_status():
 
 def draw_browser():
     visible = lines_on_screen - 2
-    display_draw.text((10, TEXT_TOP), "Up/Down: choose  Shift: page  Enter: open  Del: delete  Esc: cancel",
-                      font=font_small, fill=0)
+    draw_centered(SCREEN_W / 2, TEXT_TOP, "Up/Down: choose  Shift: page  Enter: open  Del: delete  Esc: cancel", font_small)
     if not browse_files:
         display_draw.text((10, linespacing * 2), "(no saved files yet - Ctrl+S to save)", font=font24, fill=0)
         return

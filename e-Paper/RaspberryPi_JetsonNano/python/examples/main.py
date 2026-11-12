@@ -44,14 +44,18 @@ display_draw = ImageDraw.Draw(display_image)
 display_start_line = 0
 SCREEN_W = epd.width
 SCREEN_H = epd.height
-STATUS_Y = SCREEN_H - 30  # top of the status line (filename / words / page)
-INPUT_Y = STATUS_Y - 40   # top of the input line area
 font24 = ImageFont.truetype('Courier Prime.ttf', 28)
 font_status = ImageFont.truetype('Courier Prime.ttf', 20)
+font_small = ImageFont.truetype('Courier Prime.ttf', 18)
+font_big = ImageFont.truetype('Courier Prime.ttf', 32)
+font_name = ImageFont.truetype('Courier Prime.ttf', 26)
 textWidth=16
 linespacing = 36
 chars_per_line = 52
-lines_on_screen = 17
+lines_on_screen = 14  # lines of text shown above the input line
+TEXT_TOP = 4
+INPUT_Y = TEXT_TOP + lines_on_screen * linespacing  # top of the input line area
+PANEL_Y = INPUT_Y + 40    # top of the bottom panel (page bar, divider, stats, file name)
 # partial updates leave ghosting; after this many, the next full redraw
 # (new line / scroll) also does a full-screen refresh. Tune to taste.
 FULL_REFRESH_AFTER = int(os.environ.get('ZW_FULL_REFRESH_AFTER', 60))
@@ -172,19 +176,20 @@ def load_current_doc_name():
 def word_count():
     return sum(len(l.split()) for l in previous_lines) + len(input_content.split())
 
+def char_count():
+    # +1 per finished line for the space/newline at the wrap point
+    return sum(len(l) + 1 for l in previous_lines) + len(input_content)
+
 def total_pages():
     return max(1, math.ceil(len(previous_lines) / lines_on_screen))
 
 def current_page():
     return max(1, total_pages() - scrollindex + 1)
 
-def status_text():
-    name = current_doc if current_doc else "untitled"
-    if len(name) > MAX_NAME_LEN:
-        name = name[:MAX_NAME_LEN - 1] + "~"
-    words = word_count()
-    right = f"{words} word{'' if words == 1 else 's'}  |  Page {current_page()}/{total_pages()}"
-    return name, right
+def reading_time(words, wpm=200):
+    """Estimated time to read the document, as HH:MM:SS."""
+    secs = int(words * 60 / wpm)
+    return f"{secs // 3600:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}"
 
 # The keyboard callbacks run on their own thread and call update_display(),
 # while the main loop calls update_input_area(). Drawing into display_image and
@@ -198,13 +203,45 @@ def with_display_lock(fn):
             return fn(*args, **kwargs)
     return wrapper
 
+def draw_centered(cx, y, text, font):
+    display_draw.text((cx - font.getlength(text) / 2, y), text, font=font, fill=0)
+
 def draw_status():
-    """Bottom line: file name on the left, word count and page on the right."""
-    display_draw.rectangle((0, STATUS_Y - 6, SCREEN_W, SCREEN_H), fill=255)
-    display_draw.line((10, STATUS_Y - 4, SCREEN_W - 10, STATUS_Y - 4), fill=0)
-    left, right = status_text()
-    display_draw.text((10, STATUS_Y), left, font=font_status, fill=0)
-    display_draw.text((SCREEN_W - 10 - font_status.getlength(right), STATUS_Y), right, font=font_status, fill=0)
+    """Bottom panel: page bar, divider, reading time / words / characters, file name."""
+    display_draw.rectangle((0, PANEL_Y, SCREEN_W, SCREEN_H), fill=255)
+    page, pages = current_page(), total_pages()
+
+    # page progress bar: "Pg 2 ------[=]------ of 5"
+    row_y = PANEL_Y + 2
+    left, right = f"Pg {page}", f"of {pages}"
+    display_draw.text((10, row_y), left, font=font_small, fill=0)
+    display_draw.text((SCREEN_W - 10 - font_small.getlength(right), row_y), right, font=font_small, fill=0)
+    x0, x1, mid = 90, SCREEN_W - 90, row_y + 10
+    display_draw.line((x0, mid, x1, mid), fill=0)
+    marker_w = 40
+    frac = (page - 1) / (pages - 1) if pages > 1 else 0
+    mx = x0 + (x1 - x0 - marker_w) * frac
+    display_draw.rectangle((mx, mid - 2, mx + marker_w, mid + 2), fill=0)
+
+    # the divider between the text and the stats
+    div_y = PANEL_Y + 28
+    display_draw.line((10, div_y, SCREEN_W - 10, div_y), fill=0, width=2)
+
+    # stats row
+    words = word_count()
+    val_y, label_y = div_y + 8, div_y + 44
+    left_x, right_x = SCREEN_W * 0.17, SCREEN_W * 0.83
+    draw_centered(left_x, val_y + 4, reading_time(words), font_status)
+    draw_centered(left_x, label_y, "Reading Time", font_small)
+    draw_centered(SCREEN_W / 2, val_y, f"Words: {words:,}", font_big)
+    draw_centered(right_x, val_y + 4, f"{char_count():,}", font_status)
+    draw_centered(right_x, label_y, "Characters", font_small)
+
+    # file name
+    name = current_doc if current_doc else "untitled"
+    if len(name) > MAX_NAME_LEN:
+        name = name[:MAX_NAME_LEN - 1] + "~"
+    draw_centered(SCREEN_W / 2, label_y + 20, name, font_name)
 
 def draw_browser():
     visible = lines_on_screen - 2

@@ -111,7 +111,7 @@ https://www.youtube.com/watch?v=UEmSsscijKE has a video walkthrough of the above
 
 Files and shortcuts (GDEH0576T81 version):
 
-The bottom line of the screen shows the file name, word count and page number.
+Below the text is a panel with a page progress bar, a divider, then estimated reading time (200 wpm), word count and character count, with the file name underneath.
 Files are stored as plain text in `e-Paper/RaspberryPi_JetsonNano/python/examples/data/documents/`.
 
 - Ctrl+S: save (asks for a file name the first time; Enter confirms, Esc cancels). Enter also autosaves a named file.

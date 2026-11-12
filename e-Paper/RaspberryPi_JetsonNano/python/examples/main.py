@@ -116,6 +116,7 @@ prompt_action = None  # 'save' or 'rename'
 browse_files = []
 browse_index = 0
 browse_confirm_delete = False
+browse_info = {}  # name -> (modified date text, word count), filled when the list opens
 MAX_NAME_LEN = 32
 
 def load_previous_lines(file_path):
@@ -150,6 +151,17 @@ def list_documents():
     names = [f[:-4] for f in os.listdir(DOCS_DIR) if f.endswith('.txt')]
     names.sort(key=lambda n: os.path.getmtime(doc_path(n)), reverse=True)
     return names
+
+def doc_info(name):
+    """(date text, word count) for the file list."""
+    path = doc_path(name)
+    date = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(path)))
+    try:
+        with open(path) as f:
+            words = len(f.read().split())
+    except OSError:
+        words = 0
+    return date, words
 
 def doc_lines():
     """The whole document as lines, including the line being typed."""
@@ -252,21 +264,29 @@ def draw_status():
 
 def draw_browser():
     visible = lines_on_screen - 2
-    display_draw.text((10, 0), "Open file   Up/Down: choose  Enter: open  Del: delete  Esc: cancel",
-                      font=font_status, fill=0)
+    display_draw.text((10, TEXT_TOP), "Up/Down: choose  Shift: page  Enter: open  Del: delete  Esc: cancel",
+                      font=font_small, fill=0)
     if not browse_files:
         display_draw.text((10, linespacing * 2), "(no saved files yet - Ctrl+S to save)", font=font24, fill=0)
         return
-    top = max(0, min(browse_index - visible // 2, len(browse_files) - visible))
-    y = linespacing
+    top = (browse_index // visible) * visible  # window moves a page at a time
+    y = TEXT_TOP + linespacing
     for i in range(top, min(top + visible, len(browse_files))):
         name = browse_files[i]
         marker = ">" if i == browse_index else " "
-        label = f"{marker} {name}"
         if i == browse_index and browse_confirm_delete:
-            label += "   delete? (y/n)"
-        display_draw.text((10, y), label[:chars_per_line], font=font24, fill=0)
+            display_draw.text((10, y), f"{marker} {name}   delete? (y/n)", font=font24, fill=0)
+        else:
+            display_draw.text((10, y), f"{marker} {name}", font=font24, fill=0)
+            date, words = browse_info.get(name, ("", 0))
+            wtext = f"{words:,} word{'' if words == 1 else 's'}"
+            display_draw.text((580, y + 5), date, font=font_status, fill=0)
+            display_draw.text((SCREEN_W - 10 - font_status.getlength(wtext), y + 5), wtext, font=font_status, fill=0)
         y += linespacing
+    # page indicator for long lists
+    if len(browse_files) > visible:
+        pg = f"{browse_index // visible + 1}/{math.ceil(len(browse_files) / visible)}"
+        display_draw.text((SCREEN_W - 10 - font_small.getlength(pg), INPUT_Y + 8), pg, font=font_small, fill=0)
 
 def current_input():
     """(text, cursor) to show on the input line for the current mode."""
@@ -412,8 +432,9 @@ def start_prompt(action, label, initial=""):
     update_display()
 
 def start_browser():
-    global mode, browse_files, browse_index, browse_confirm_delete
+    global mode, browse_files, browse_index, browse_confirm_delete, browse_info
     browse_files = list_documents()
+    browse_info = {n: doc_info(n) for n in browse_files}
     browse_index = 0
     browse_confirm_delete = False
     if current_doc in browse_files:
@@ -492,10 +513,12 @@ def handle_modal_key(e):
         browse_confirm_delete = False
         update_display()
     elif e.name == "up":
-        browse_index = max(0, browse_index - 1)
+        step = (lines_on_screen - 2) if shift_active else 1  # shift = a page at a time
+        browse_index = max(0, browse_index - step)
         update_display()
     elif e.name == "down":
-        browse_index = min(max(0, len(browse_files) - 1), browse_index + 1)
+        step = (lines_on_screen - 2) if shift_active else 1
+        browse_index = min(max(0, len(browse_files) - 1), browse_index + step)
         update_display()
     elif e.name == "delete" and browse_files:
         browse_confirm_delete = True

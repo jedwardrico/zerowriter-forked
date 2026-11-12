@@ -116,7 +116,7 @@ Files are stored as plain text in `e-Paper/RaspberryPi_JetsonNano/python/example
 
 - Ctrl+S: save (asks for a file name the first time; Enter confirms, Esc cancels). Enter also autosaves a named file.
 - Ctrl+R: rename / save as
-- Ctrl+O: open a saved file (Up/Down to choose, Enter to open, Del to delete then y to confirm, Esc to cancel)
+- Ctrl+O: open a saved file (Up/Down to choose (Shift+Up/Down a page at a time), each file shows its date and word count, Enter to open, Del to delete then y to confirm, Esc to cancel)
 - Ctrl+N: save the current file and start a new one
 - Arrow keys: scroll through pages
 - Ctrl+Esc: power down

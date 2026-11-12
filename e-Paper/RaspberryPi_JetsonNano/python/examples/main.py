@@ -186,10 +186,15 @@ def total_pages():
 def current_page():
     return max(1, total_pages() - scrollindex + 1)
 
-session_start = time.time()  # when this writing session began (program start)
+session_start = time.time()  # when this writing session began (program start, or last new/open)
+
+def reset_session():
+    """Restart the session clock (new file, or a saved file opened)."""
+    global session_start
+    session_start = time.time()
 
 def session_time():
-    """Time since the program started, as HH:MM:SS."""
+    """Time since the session started, as HH:MM:SS."""
     secs = int(time.time() - session_start)
     return f"{secs // 3600:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}"
 
@@ -209,7 +214,7 @@ def draw_centered(cx, y, text, font):
     display_draw.text((cx - font.getlength(text) / 2, y), text, font=font, fill=0)
 
 def draw_status():
-    """Bottom panel: page bar, divider, reading time / words / characters, file name."""
+    """Bottom panel: page bar, divider, session time / words / characters, file name."""
     display_draw.rectangle((0, PANEL_Y, SCREEN_W, SCREEN_H), fill=255)
     page, pages = current_page(), total_pages()
 
@@ -432,6 +437,7 @@ def open_document(name):
     scrollindex = 1
     set_current_doc(name)
     save_previous_lines(file_path, previous_lines)
+    reset_session()
 
 def finish_prompt():
     """Enter pressed in the file-name prompt."""
@@ -576,6 +582,7 @@ def handle_key_press(e):
         scrollindex = 1
         set_current_doc(None)
         save_previous_lines(file_path, previous_lines)
+        reset_session()
 
         console_message = f"[New]"
         update_display(force_full=True)  # clean slate: full refresh clears the old page
